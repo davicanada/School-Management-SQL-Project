@@ -1,22 +1,22 @@
 -- ============================================================================
--- DATABASE ARCHITECTURE FIXES - Gestão Escolar
+-- DATABASE ARCHITECTURE FIXES – School Management
 -- ============================================================================
--- Data: 2025-10-26
--- Descrição: Scripts SQL para corrigir problemas identificados na análise
--- IMPORTANTE: Testar em ambiente de desenvolvimento antes de aplicar em produção
+-- Date: 2025-10-26
+-- Description: SQL scripts to fix issues identified during analysis
+-- IMPORTANT: Test in development environment before applying in production
 -- ============================================================================
 
 -- ============================================================================
--- PARTE 1: CORREÇÕES CRÍTICAS (EXECUTAR PRIMEIRO)
+-- PART 1: CRITICAL FIXES (EXECUTE FIRST)
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
--- 1.1 - Criar políticas RLS para student_class_history
+-- 1.1 – Create RLS policies for student_class_history
 -- ----------------------------------------------------------------------------
--- Problema: Tabela tem RLS habilitado mas sem políticas (dados inacessíveis)
--- Prioridade: CRÍTICA
+-- Issue: Table has RLS enabled but no policies (data inaccessible)
+-- Priority: CRITICAL
 
--- Permitir SELECT para usuários da mesma instituição
+-- Allow SELECT for users from the same institution
 CREATE POLICY "student_class_history_select" ON student_class_history
 FOR SELECT USING (
   EXISTS (
@@ -27,19 +27,19 @@ FOR SELECT USING (
   )
 );
 
--- Permitir INSERT apenas para admins da instituição
+-- Allow INSERT only for institution admins
 CREATE POLICY "student_class_history_insert" ON student_class_history
 FOR INSERT WITH CHECK (
   EXISTS (
     SELECT 1 FROM students s
     JOIN user_institutions ui ON s.institution_id = ui.institution_id
-    WHERE s.id = student_id  -- student_id do INSERT
+    WHERE s.id = student_id  -- student_id used during INSERT
     AND ui.user_id = auth.uid()
     AND ui.role = 'admin'
   )
 );
 
--- Permitir UPDATE apenas para admins da instituição
+-- Allow UPDATE only for institution admins
 CREATE POLICY "student_class_history_update" ON student_class_history
 FOR UPDATE USING (
   EXISTS (
@@ -51,7 +51,7 @@ FOR UPDATE USING (
   )
 );
 
--- Permitir DELETE apenas para admins da instituição
+-- Allow DELETE only for institution admins
 CREATE POLICY "student_class_history_delete" ON student_class_history
 FOR DELETE USING (
   EXISTS (
@@ -64,10 +64,10 @@ FOR DELETE USING (
 );
 
 -- ----------------------------------------------------------------------------
--- 1.2 - Remover políticas temporárias de desenvolvimento
+-- 1.2 – Remove temporary development policies
 -- ----------------------------------------------------------------------------
--- Problema: Políticas "Temporary dev policy" com acesso irrestrito (qual: true)
--- Prioridade: CRÍTICA
+-- Issue: "Temporary dev policy" entries with unrestricted access (qualifier: true)
+-- Priority: CRITICAL
 
 DROP POLICY IF EXISTS "Temporary dev policy - users" ON users;
 DROP POLICY IF EXISTS "Temporary dev policy - classes" ON classes;
@@ -76,12 +76,12 @@ DROP POLICY IF EXISTS "Temporary dev policy - occurrences" ON occurrences;
 DROP POLICY IF EXISTS "Temporary dev policy - occurrence_types" ON occurrence_types;
 
 -- ----------------------------------------------------------------------------
--- 1.3 - Criar índices para foreign keys críticas
+-- 1.3 – Create indexes for critical foreign keys
 -- ----------------------------------------------------------------------------
--- Problema: 11 foreign keys sem índices causando table scans em JOINs
--- Prioridade: CRÍTICA
+-- Issue: 11 foreign keys without indexes causing table scans during JOINs
+-- Priority: CRITICAL
 
--- Índices com impacto CRÍTICO
+-- Indexes with CRITICAL impact
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_classes_institution_id
   ON classes(institution_id);
 
@@ -91,7 +91,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_occurrences_class_id
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_occurrences_occurrence_type_id
   ON occurrences(occurrence_type_id);
 
--- Índices com impacto ALTO
+-- Indexes with HIGH impact
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_occurrence_types_institution_id
   ON occurrence_types(institution_id);
 
@@ -107,7 +107,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_access_requests_institution_id
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_occurrences_teacher_id
   ON occurrences(teacher_id);
 
--- Índices com impacto MÉDIO/BAIXO (considerar criar)
+-- Indexes with MEDIUM/LOW impact (optional)
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_student_class_history_class_id
   ON student_class_history(class_id);
 
@@ -119,64 +119,63 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_access_requests_approved_by
 
 
 -- ============================================================================
--- PARTE 2: CORREÇÕES DE ALTA PRIORIDADE
+-- PART 2: HIGH-PRIORITY FIXES
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
--- 2.1 - Resolver redundância em user_institutions
+-- 2.1 – Resolve redundancy in user_institutions
 -- ----------------------------------------------------------------------------
--- Problema: Campos 'role' e 'role_in_institution' duplicados
--- Prioridade: ALTA
+-- Issue: Duplicate fields 'role' and 'role_in_institution'
+-- Priority: HIGH
 
--- Passo 1: Verificar se há inconsistências (executar primeiro)
+-- Step 1: Check for inconsistencies (run first)
 DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM user_institutions
     WHERE role IS DISTINCT FROM role_in_institution
   ) THEN
-    RAISE EXCEPTION 'Existem registros com role != role_in_institution. Corrija manualmente antes de continuar.';
+    RAISE EXCEPTION 'There are records with role != role_in_institution. Fix manually before continuing.';
   END IF;
 END $$;
 
--- Passo 2: Remover coluna redundante
+-- Step 2: Remove redundant column
 ALTER TABLE user_institutions DROP COLUMN IF EXISTS role_in_institution;
 
--- Passo 3: Garantir que role não seja nulo
+-- Step 3: Ensure role is not null
 UPDATE user_institutions SET role = 'professor' WHERE role IS NULL;
 ALTER TABLE user_institutions ALTER COLUMN role SET NOT NULL;
 
 -- ----------------------------------------------------------------------------
--- 2.2 - Adicionar constraints de unicidade
+-- 2.2 – Add uniqueness constraints
 -- ----------------------------------------------------------------------------
--- Problema: registration_number permite duplicatas na mesma instituição
--- Prioridade: ALTA
+-- Issue: registration_number allows duplicates within the same institution
+-- Priority: HIGH
 
--- Garantir unicidade de matrícula por instituição
--- NULLS NOT DISTINCT permite apenas um NULL por instituição
+-- Enforce unique student registration per institution
+-- NULLS NOT DISTINCT allows only one NULL per institution
 ALTER TABLE students
 ADD CONSTRAINT IF NOT EXISTS students_registration_number_institution_key
 UNIQUE NULLS NOT DISTINCT (institution_id, registration_number);
 
--- Se registration_number deve ser obrigatório, descomentar:
+-- If registration_number must be mandatory, uncomment:
 -- ALTER TABLE students ALTER COLUMN registration_number SET NOT NULL;
 
 -- ----------------------------------------------------------------------------
--- 2.3 - Consolidar políticas RLS duplicadas
+-- 2.3 – Consolidate duplicated RLS policies
 -- ----------------------------------------------------------------------------
--- Problema: Múltiplas políticas permissivas causando overhead de performance
--- Prioridade: ALTA
+-- Issue: Multiple permissive policies causing performance overhead
+-- Priority: HIGH
 
 -- === CLASSES ===
--- Consolidar "Allow read classes" + políticas temporárias
 DROP POLICY IF EXISTS "Allow read classes" ON classes;
 
 CREATE POLICY "classes_select_policy" ON classes
 FOR SELECT USING (
-  -- Masters podem ver tudo
+  -- Masters can view everything
   EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'master')
   OR
-  -- Usuários podem ver turmas de suas instituições
+  -- Users can view classes from their institutions
   institution_id IN (
     SELECT institution_id FROM user_institutions WHERE user_id = auth.uid()
   )
@@ -184,7 +183,7 @@ FOR SELECT USING (
 
 CREATE POLICY "classes_insert_policy" ON classes
 FOR INSERT WITH CHECK (
-  -- Apenas admins da instituição podem criar turmas
+  -- Only institution admins can create classes
   institution_id IN (
     SELECT institution_id FROM user_institutions
     WHERE user_id = auth.uid() AND role = 'admin'
@@ -193,7 +192,7 @@ FOR INSERT WITH CHECK (
 
 CREATE POLICY "classes_update_policy" ON classes
 FOR UPDATE USING (
-  -- Apenas admins da instituição podem atualizar turmas
+  -- Only institution admins can update classes
   institution_id IN (
     SELECT institution_id FROM user_institutions
     WHERE user_id = auth.uid() AND role = 'admin'
@@ -202,7 +201,7 @@ FOR UPDATE USING (
 
 CREATE POLICY "classes_delete_policy" ON classes
 FOR DELETE USING (
-  -- Apenas admins da instituição podem deletar turmas
+  -- Only institution admins can delete classes
   institution_id IN (
     SELECT institution_id FROM user_institutions
     WHERE user_id = auth.uid() AND role = 'admin'
@@ -296,16 +295,16 @@ FOR SELECT USING (
 
 CREATE POLICY "occurrences_insert_policy" ON occurrences
 FOR INSERT WITH CHECK (
-  -- Professores e admins podem criar ocorrências em suas instituições
+  -- Teachers and admins can create occurrences in their institution
   institution_id IN (
     SELECT institution_id FROM user_institutions WHERE user_id = auth.uid()
   )
-  AND teacher_id = auth.uid()  -- Apenas o próprio usuário como professor
+  AND teacher_id = auth.uid()  -- Only the user themself as teacher
 );
 
 CREATE POLICY "occurrences_update_policy" ON occurrences
 FOR UPDATE USING (
-  -- Apenas o professor que criou ou admin da instituição
+  -- Only the teacher who created it, or an institution admin
   (teacher_id = auth.uid())
   OR
   (institution_id IN (
@@ -316,7 +315,7 @@ FOR UPDATE USING (
 
 CREATE POLICY "occurrences_delete_policy" ON occurrences
 FOR DELETE USING (
-  -- Apenas admins da instituição podem deletar
+  -- Only institution admins may delete
   institution_id IN (
     SELECT institution_id FROM user_institutions
     WHERE user_id = auth.uid() AND role = 'admin'
@@ -324,31 +323,30 @@ FOR DELETE USING (
 );
 
 -- === USER_INSTITUTIONS ===
--- Consolidar políticas duplicadas de INSERT
 DROP POLICY IF EXISTS "Allow insert user_institutions" ON user_institutions;
 DROP POLICY IF EXISTS "Master can insert user_institutions" ON user_institutions;
 
 CREATE POLICY "user_institutions_select_policy" ON user_institutions
 FOR SELECT USING (
-  -- Masters veem tudo
+  -- Masters see everything
   EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'master')
   OR
-  -- Admins veem da própria instituição
+  -- Admins see records from their own institution
   (institution_id IN (
     SELECT institution_id FROM user_institutions
     WHERE user_id = auth.uid() AND role = 'admin'
   ))
   OR
-  -- Usuários veem suas próprias associações
+  -- Users see their own associations
   user_id = auth.uid()
 );
 
 CREATE POLICY "user_institutions_insert_policy" ON user_institutions
 FOR INSERT WITH CHECK (
-  -- Masters podem inserir qualquer associação
+  -- Masters may insert any association
   EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'master')
   OR
-  -- Admins podem adicionar usuários em suas instituições
+  -- Admins may add users to their institutions
   (institution_id IN (
     SELECT institution_id FROM user_institutions
     WHERE user_id = auth.uid() AND role = 'admin'
@@ -367,42 +365,42 @@ FOR DELETE USING (
 
 
 -- ============================================================================
--- PARTE 3: MELHORIAS DE PERFORMANCE (PRIORIDADE MÉDIA)
+-- PART 3: PERFORMANCE IMPROVEMENTS (MEDIUM PRIORITY)
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
--- 3.1 - Índices compostos para queries comuns
+-- 3.1 – Composite indexes for common queries
 -- ----------------------------------------------------------------------------
 
--- Para listagem de turmas ativas por instituição e ano
+-- For listing active classes by institution and year
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_classes_institution_year_active
   ON classes(institution_id, academic_year, is_active)
   WHERE is_active = true;
 
--- Para relatórios de ocorrências por período e instituição
+-- For occurrence reports by period and institution
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_occurrences_institution_date
   ON occurrences(institution_id, occurred_at DESC);
 
--- Para buscar solicitações pendentes
+-- To fetch pending access requests
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_access_requests_status
   ON access_requests(status)
   WHERE status = 'pending';
 
--- Para histórico de movimentação de alunos por data
+-- For student class movement history by date
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_student_class_history_moved_at
   ON student_class_history(moved_at DESC);
 
--- Para buscar alunos ativos por turma
+-- To fetch active students by class
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_students_class_active
   ON students(class_id, is_active)
   WHERE is_active = true;
 
 -- ----------------------------------------------------------------------------
--- 3.2 - Definir constraints ON DELETE apropriadas
+-- 3.2 – Define appropriate ON DELETE constraints
 -- ----------------------------------------------------------------------------
--- IMPORTANTE: Avaliar requisitos de negócio antes de aplicar
+-- IMPORTANT: Review business rules before applying
 
--- Movimentações de turma: permitir SET NULL se turma for deletada
+-- Student movement: allow SET NULL if class is deleted
 ALTER TABLE student_class_history
 DROP CONSTRAINT IF EXISTS student_class_history_class_id_fkey,
 ADD CONSTRAINT student_class_history_class_id_fkey
@@ -413,22 +411,20 @@ DROP CONSTRAINT IF EXISTS student_class_history_moved_from_class_id_fkey,
 ADD CONSTRAINT student_class_history_moved_from_class_id_fkey
 FOREIGN KEY (moved_from_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 
--- Ocorrências: manter registro histórico mesmo se professor for deletado
+-- Occurrences: keep historical record even if teacher is deleted
 ALTER TABLE occurrences
 DROP CONSTRAINT IF EXISTS occurrences_teacher_id_fkey,
 ADD CONSTRAINT occurrences_teacher_id_fkey
 FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE SET NULL;
 
--- Alunos: definir CASCADE se turma for deletada (ou SET NULL se preferir)
--- DESCOMENTE A OPÇÃO DESEJADA:
-
--- Opção A: SET NULL (aluno fica sem turma)
+-- Students: define CASCADE or SET NULL depending on business rules
+-- Option A: SET NULL (student becomes unassigned)
 -- ALTER TABLE students
 -- DROP CONSTRAINT IF EXISTS students_class_id_fkey,
 -- ADD CONSTRAINT students_class_id_fkey
 -- FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE SET NULL;
 
--- Opção B: RESTRICT (não permite deletar turma com alunos)
+-- Option B: RESTRICT (prevents deleting classes with assigned students)
 -- ALTER TABLE students
 -- DROP CONSTRAINT IF EXISTS students_class_id_fkey,
 -- ADD CONSTRAINT students_class_id_fkey
@@ -436,68 +432,68 @@ FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE SET NULL;
 
 
 -- ============================================================================
--- PARTE 4: LIMPEZA E OTIMIZAÇÃO (PRIORIDADE BAIXA)
+-- PART 4: CLEANUP AND OPTIMIZATION (LOW PRIORITY)
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
--- 4.1 - Remover índices duplicados/não utilizados
+-- 4.1 – Remove unused/duplicate indexes
 -- ----------------------------------------------------------------------------
--- IMPORTANTE: Avaliar após ter dados em produção
--- Email já tem índice UNIQUE, não precisa de índice adicional
+-- IMPORTANT: Evaluate after production data is available
+-- Email already has UNIQUE index; extra index unnecessary
 
 DROP INDEX CONCURRENTLY IF EXISTS idx_users_email;
 
 -- ----------------------------------------------------------------------------
--- 4.2 - Adicionar comentários para documentação
+-- 4.2 – Add comments for documentation
 -- ----------------------------------------------------------------------------
 
-COMMENT ON TABLE institutions IS 'Instituições de ensino cadastradas no sistema';
-COMMENT ON TABLE users IS 'Usuários do sistema (master, admin, professor)';
-COMMENT ON TABLE user_institutions IS 'Relacionamento N:N entre usuários e instituições com role específico';
-COMMENT ON TABLE classes IS 'Turmas das instituições por ano letivo';
-COMMENT ON TABLE students IS 'Alunos matriculados nas instituições';
-COMMENT ON TABLE student_class_history IS 'Histórico de movimentação de alunos entre turmas';
-COMMENT ON TABLE occurrence_types IS 'Tipos de ocorrências disciplinares configuráveis por instituição';
-COMMENT ON TABLE occurrences IS 'Registros de ocorrências disciplinares dos alunos';
-COMMENT ON TABLE access_requests IS 'Solicitações de acesso ao sistema (criação de instituição/usuário)';
+COMMENT ON TABLE institutions IS 'Educational institutions registered in the system';
+COMMENT ON TABLE users IS 'System users (master, admin, teacher)';
+COMMENT ON TABLE user_institutions IS 'Many-to-many relationship between users and institutions with specific roles';
+COMMENT ON TABLE classes IS 'Institution classes for each academic year';
+COMMENT ON TABLE students IS 'Students enrolled in the institutions';
+COMMENT ON TABLE student_class_history IS 'Student movement history between classes';
+COMMENT ON TABLE occurrence_types IS 'Configurable disciplinary occurrence types per institution';
+COMMENT ON TABLE occurrences IS 'Disciplinary occurrence records for students';
+COMMENT ON TABLE access_requests IS 'System access requests (institution/user creation)';
 
-COMMENT ON COLUMN users.role IS 'Role global do usuário: master (super admin), admin ou professor';
-COMMENT ON COLUMN user_institutions.role IS 'Role do usuário nesta instituição específica: admin ou professor';
-COMMENT ON COLUMN students.registration_number IS 'Matrícula do aluno (único por instituição)';
-COMMENT ON COLUMN occurrences.occurred_at IS 'Data/hora em que a ocorrência aconteceu (pode ser diferente de created_at)';
+COMMENT ON COLUMN users.role IS 'Global user role: master (super admin), admin, or teacher';
+COMMENT ON COLUMN user_institutions.role IS 'User role within a specific institution: admin or teacher';
+COMMENT ON COLUMN students.registration_number IS 'Student registration number (unique per institution)';
+COMMENT ON COLUMN occurrences.occurred_at IS 'Date/time when the occurrence took place (may differ from created_at)';
 
 -- ----------------------------------------------------------------------------
--- 4.3 - Habilitar extensões úteis (se necessário)
+-- 4.3 – Enable useful extensions (if needed)
 -- ----------------------------------------------------------------------------
 
--- Para busca full-text em português
+-- For full-text search in Portuguese
 -- CREATE EXTENSION IF NOT EXISTS unaccent;
 -- CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- Para auditoria de mudanças
+-- For audit logging
 -- CREATE EXTENSION IF NOT EXISTS pgaudit;
 
--- Para jobs agendados (relatórios, limpeza)
+-- For scheduled jobs (reports, cleanup)
 -- CREATE EXTENSION IF NOT EXISTS pg_cron;
 
 
 -- ============================================================================
--- VERIFICAÇÕES PÓS-APLICAÇÃO
+-- POST-APPLICATION CHECKS
 -- ============================================================================
 
--- Verificar políticas RLS em student_class_history
+-- Check RLS policies in student_class_history
 SELECT schemaname, tablename, policyname, cmd
 FROM pg_policies
 WHERE tablename = 'student_class_history'
 ORDER BY cmd;
 
--- Verificar índices criados
+-- Check created indexes
 SELECT schemaname, tablename, indexname
 FROM pg_indexes
 WHERE schemaname = 'public'
 ORDER BY tablename, indexname;
 
--- Verificar constraints de foreign keys
+-- Check foreign key constraints
 SELECT
   tc.table_name,
   tc.constraint_name,
@@ -516,7 +512,7 @@ WHERE tc.table_schema = 'public'
   AND tc.constraint_type = 'FOREIGN KEY'
 ORDER BY tc.table_name, tc.constraint_name;
 
--- Verificar tabelas sem políticas RLS
+-- Check tables with RLS enabled but without policies
 SELECT schemaname, tablename, rowsecurity
 FROM pg_tables
 WHERE schemaname = 'public'
@@ -526,5 +522,5 @@ WHERE schemaname = 'public'
   );
 
 -- ============================================================================
--- FIM DOS SCRIPTS
+-- END OF SCRIPTS
 -- ============================================================================
