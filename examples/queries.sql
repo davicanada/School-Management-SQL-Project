@@ -1,8 +1,7 @@
 -- ============================================================================
--- EXAMPLE QUERIES - Sistema de Gestão Escolar
+-- EXAMPLE QUERIES - School Management System
 -- ============================================================================
 -- Collection of SQL queries demonstrating database capabilities
--- Author: Data Analyst Portfolio
 -- ============================================================================
 
 -- ============================================================================
