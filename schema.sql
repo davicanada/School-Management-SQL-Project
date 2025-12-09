@@ -3,7 +3,7 @@
 -- ============================================================================
 -- Database: PostgreSQL 17+ (Supabase)
 -- Description: Multi-tenant school management system with RLS
--- Author: Data Analyst Portfolio
+-- Author: Davi Almeida
 -- ============================================================================
 
 -- Enable required extensions
