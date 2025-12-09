@@ -1,9 +1,8 @@
 -- ============================================================================
--- DATABASE SCHEMA - Sistema de Gestão Escolar
+-- DATABASE SCHEMA - School Management System
 -- ============================================================================
 -- Database: PostgreSQL 17+ (Supabase)
 -- Description: Multi-tenant school management system with RLS
--- Author: Davi Almeida
 -- ============================================================================
 
 -- Enable required extensions
